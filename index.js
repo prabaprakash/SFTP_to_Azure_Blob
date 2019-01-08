@@ -2,11 +2,11 @@ let Client = require('ssh2-sftp-client');
 let sftp = new Client();
 let _ = require('lodash');
 var schedule = require('node-schedule');
+createSftp();
 
 
 schedule.scheduleJob('28 * * * *', function () {
     console.log('The answer to life, the universe, and everything!');
-    createSftp();
 });
 
 function uploadToBlob(name, stream) {
@@ -57,7 +57,7 @@ function createTopic() {
 
     serviceBusService.createTopicIfNotExists('sftp_topic', topicOptions, function (error) {
         if (!error) {
-            // topic was created or exists
+            console.log('topic created')
         }
     });
 }
@@ -104,7 +104,7 @@ function sendMessage() {
     for (i = 0;i < 5;i++) {
         message.customProperties.messagenumber=i;
         message.body='This is Message #'+i;
-        serviceBusService.sendTopicMessage(topic, message, function(error) {
+        serviceBusService.sendTopicMessage('sftp_topic', message, function(error) {
           if (error) {
             console.log(error);
           }
@@ -125,7 +125,7 @@ function recieveMessage() {
         }
     });
 }
-createTopic();
-createSubscription();
-recieveMessage();
+//createTopic();
+//createSubscription();
+setInterval(function(){ recieveMessage(); }, 1000);
 sendMessage();
