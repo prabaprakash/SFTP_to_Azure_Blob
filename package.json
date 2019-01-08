@@ -1,0 +1,19 @@
+{
+  "name": "sftp_to_azure_service_bus",
+  "version": "1.0.0",
+  "description": "",
+  "main": "SFTP to Azure Service Bus",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "azure": "^2.3.1-preview",
+    "azure-storage": "^2.10.2",
+    "lodash": "^4.17.11",
+    "node-schedule": "^1.3.1",
+    "ssh2-sftp-client": "^2.4.3"
+  }
+}

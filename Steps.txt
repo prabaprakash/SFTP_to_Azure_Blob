@@ -1,0 +1,6 @@
+1.
+
+docker run \
+    -v $PWD:/home/foo/upload \
+    -p 8080:22 -d atmoz/sftp \
+    foo:pass:1001

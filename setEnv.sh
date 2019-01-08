@@ -1,0 +1,2 @@
+export AZURE_STORAGE_CONNECTION_STRING='DefaultEndpointsProtocol=https;AccountName=prabastorage;AccountKey=sD1wjhxHpFMc/FqVq9FcLSuoHO2AZmenLCLehzL9NnP6qc1HHPMRPRzDlofqkhnlwz7Z7fo2bxvt655fHgFbnw==;EndpointSuffix=core.windows.net'
+export AZURE_SERVICEBUS_CONNECTION_STRING='Endpoint=sb://spikedocstandardization.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=JQDFL28uQ68pbH2BwVzwyGwk8cdQdWodwkIabHinInk='
