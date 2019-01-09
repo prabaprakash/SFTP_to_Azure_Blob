@@ -31,40 +31,32 @@ class sftp_to_azure {
         sftp.on('close', () => {
             console.log('sftp close event');
         });
+        this.getSftpFilesList();
         schedule.scheduleJob('*/1 * * * *', () => {
             console.log('The answer to life, the universe, and everything!');
-            this.getSftpFilesList();
         });
     }
 
-    async uploadToBlob(name, stream) {
+    async uploadToBlob(body, stream) {
         var blobService = azure_storage.createBlobService();
-        stream.pipe(blobService.createWriteStreamToBlockBlob('prabafiles', name));
+        stream.pipe(blobService.createWriteStreamToBlockBlob('prabafiles', body.name));
+        let obj = await db.files.findOne({
+            where: {
+                id: body.id
+            }
+        });
+        await obj.update({
+            status: 'done',
+            url: this.blob_url + body.name,
+            updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss"),
+        });
     }
 
-    fetchSFTPfile(body) {
+    async fetchSFTPfile(body) {
         // console.log(body);
-        sftp.get(this.sftp_from_folder + "/" + body.name)
-            .then((stream) => {
-                this.uploadToBlob(body.name, stream);
-                db.files.findOne({
-                        where: {
-                            id: body.id
-                        }
-                    })
-                    .then((obj) => {
-                        if (obj) {
-                            return obj.update({
-                                status: 'done',
-                                url: this.blob_url + body.name,
-                                updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss"),
-                            });
-                        }
-                    });
-                sftp.rename(this.sftp_from_folder + "/" + body.name, this.sftp_to_folder + "/" + body.name);
-            }).catch((err) => {
-                console.log('catch err:', err);
-            });
+        let stream = await sftp.get(this.sftp_from_folder + "/" + body.name);
+        this.uploadToBlob(body, stream);
+        await sftp.rename(this.sftp_from_folder + "/" + body.name, this.sftp_to_folder + "/" + body.name);
     }
 
     getSftpFilesList() {
@@ -154,7 +146,7 @@ class sftp_to_azure {
                 // Message received and locked
                 // console.log(lockedMessage);
                 this.fetchSFTPfile(JSON.parse(lockedMessage.body));
-                serviceBusService.deleteMessage(lockedMessage, function (deleteError) {
+                serviceBusService.deleteMessage(lockedMessage, (deleteError) => {
                     if (!deleteError) {
                         // Message deleted
                         console.log('message has been deleted.');
