@@ -1,2 +1,10 @@
+set SFTP_HOST=52.187.134.188
+set SFTP_PORT=8080
+set SFTP_USERNAME=foo
+set SFTP_PASSWORD=pass
 set AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=prabastorage;AccountKey=sD1wjhxHpFMc/FqVq9FcLSuoHO2AZmenLCLehzL9NnP6qc1HHPMRPRzDlofqkhnlwz7Z7fo2bxvt655fHgFbnw==;EndpointSuffix=core.windows.net
 set AZURE_SERVICEBUS_CONNECTION_STRING=Endpoint=sb://spikedocstandardization.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=JQDFL28uQ68pbH2BwVzwyGwk8cdQdWodwkIabHinInk=
+set DB_HOST=52.187.134.188
+set DB_USERNAME=root
+set DB_PASSWORD=password123
+set DB_NAME=sftp

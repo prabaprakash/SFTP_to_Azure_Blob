@@ -1,19 +1,22 @@
 {
-  "name": "sftp_to_azure_service_bus",
+  "name": "sftp_to_azure_blog",
   "version": "1.0.0",
   "description": "",
-  "main": "SFTP to Azure Service Bus",
+  "main": "SFTP to Azure Blog",
   "scripts": {
-    "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "async": "^2.6.1",
     "azure": "^2.3.1-preview",
     "azure-storage": "^2.10.2",
     "lodash": "^4.17.11",
+    "mysql2": "^1.6.4",
     "node-schedule": "^1.3.1",
+    "sequelize": "^4.42.0",
+    "sequelize-auto": "^0.4.29",
     "ssh2-sftp-client": "^2.4.3"
   }
 }

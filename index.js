@@ -1,131 +1,175 @@
 let Client = require('ssh2-sftp-client');
 let sftp = new Client();
 let _ = require('lodash');
-var schedule = require('node-schedule');
-createSftp();
+let schedule = require('node-schedule');
+let azure = require('azure');
+let serviceBusService = azure.createServiceBusService();
+var azure_storage = require('azure-storage');
+let db = require('./db');
+let config = require('./config');
 
-
-schedule.scheduleJob('28 * * * *', function () {
-    console.log('The answer to life, the universe, and everything!');
-});
-
-function uploadToBlob(name, stream) {
-    var azure = require('azure-storage');
-    var blobService = azure.createBlobService();
-    stream.pipe(blobService.createWriteStreamToBlockBlob('prabafiles', name));
-}
-
-function sftpReadStream(data) {
-    sftp.get('upload' + '/' + data.name)
-        .then((stream) => {
-            //const chunks = [];
-            //stream.on('data', (chunk) => {
-            uploadToBlob(data.name, stream);
-            //});
-            stream.on('end', () => {
-                console.log('done -', data.name);
-            });
-        }).catch((err) => {
-            console.log('catch err:', err);
+class sftp_to_azure {
+    constructor() {
+        this.service_bus_topic_name = 'sftp_topic';
+        this.sftp_config = {
+            host: config.SFTP_HOST,
+            port: config.SFTP_PORT,
+            username: config.SFTP_USERNAME,
+            password: config.SFTP_PASSWORD,
+        };
+        this.sftp_from_folder = 'upload/from';
+        this.sftp_to_folder = 'upload/to';
+        this.blob_url = 'https://prabastorage.blob.core.windows.net/prabafiles/upload/';
+    }
+    async start() {
+        await sftp.connect(this.sftp_config);
+        sftp.on('end', () => {
+            console.log('sftp end event');
         });
-}
 
-function createSftp() {
-    sftp.connect({
-        host: '52.187.134.188',
-        port: '8080',
-        username: 'foo',
-        password: 'pass'
-    }).then(() => {
-        return sftp.list('upload');
-    }).then((datas) => {
-        // console.log(datas, 'the data info');
-        _.forEach(datas, data => sftpReadStream(data))
-    }).catch((err) => {
-        console.log(err, 'catch error');
-    });
-}
+        sftp.on('close', () => {
+            console.log('sftp close event');
+        });
+        schedule.scheduleJob('*/1 * * * *', () => {
+            console.log('The answer to life, the universe, and everything!');
+            this.getSftpFilesList();
+        });
+    }
 
-var azure = require('azure');
-var serviceBusService = azure.createServiceBusService();
+    async uploadToBlob(name, stream) {
+        var blobService = azure_storage.createBlobService();
+        stream.pipe(blobService.createWriteStreamToBlockBlob('prabafiles', name));
+    }
 
-function createTopic() {
-    var topicOptions = {
-        MaxSizeInMegabytes: '5120',
-        DefaultMessageTimeToLive: 'PT1M'
-    };
+    fetchSFTPfile(body) {
+        // console.log(body);
+        sftp.get(this.sftp_from_folder + "/" + body.name)
+            .then((stream) => {
+                this.uploadToBlob(body.name, stream);
+                db.files.findOne({
+                        where: {
+                            id: body.id
+                        }
+                    })
+                    .then((obj) => {
+                        if (obj) {
+                            return obj.update({
+                                status: 'done',
+                                url: this.blob_url + body.name,
+                                updated_at: new Date(),
+                            });
+                        }
+                    });
+                sftp.rename(this.sftp_from_folder + "/" + body.name, this.sftp_to_folder + "/" + body.name);
+            }).catch((err) => {
+                console.log('catch err:', err);
+            });
+    }
 
-    serviceBusService.createTopicIfNotExists('sftp_topic', topicOptions, function (error) {
-        if (!error) {
-            console.log('topic created')
-        }
-    });
-}
-function createSubscription() {
-    serviceBusService.createSubscription('sftp_topic', 'HighMessages', function (error){
-        if(!error){
-            // subscription created
-            rule.create();
-        }
-    });
-    var rule={
-        deleteDefault: function(){
-            serviceBusService.deleteRule('sftp_topic',
-                'HighMessages',
-                azure.Constants.ServiceBusConstants.DEFAULT_RULE_NAME,
-                rule.handleError);
-        },
-        create: function(){
-            var ruleOptions = {
-                sqlExpressionFilter: 'messagenumber > 3'
-            };
-            rule.deleteDefault();
-            serviceBusService.createRule('sftp_topic',
-                'HighMessages',
-                'HighMessageFilter',
-                ruleOptions,
-                rule.handleError);
-        },
-        handleError: function(error){
-            if(error){
-                console.log(error)
+    getSftpFilesList() {
+        sftp.list(this.sftp_from_folder).then((datas) => {
+            //console.log(datas, 'the data info');
+            _.forEach(datas, data => this.sendMessage(data.name))
+        }).catch((err) => {
+            console.log(err, 'catch error');
+        });
+    }
+
+    createTopic() {
+        var topicOptions = {
+            MaxSizeInMegabytes: '5120',
+            DefaultMessageTimeToLive: 'PT1M'
+        };
+
+        serviceBusService.createTopicIfNotExists('sftp_topic', topicOptions, function (error) {
+            if (!error) {
+                console.log('topic created')
+            }
+        });
+    }
+
+    createSubscription() {
+        serviceBusService.createSubscription(this.service_bus_topic_name, 'HighMessages', function (error) {
+            if (!error) {
+                // subscription created
+                rule.create();
+            }
+        });
+        var rule = {
+            deleteDefault: function () {
+                serviceBusService.deleteRule(this.service_bus_topic_name,
+                    'HighMessages',
+                    azure.Constants.ServiceBusConstants.DEFAULT_RULE_NAME,
+                    rule.handleError);
+            },
+            create: function () {
+                var ruleOptions = {
+                    sqlExpressionFilter: 'messagenumber > 3'
+                };
+                rule.deleteDefault();
+                serviceBusService.createRule(this.service_bus_topic_name,
+                    'HighMessages',
+                    'HighMessageFilter',
+                    ruleOptions,
+                    rule.handleError);
+            },
+            handleError: function (error) {
+                if (error) {
+                    console.log(error)
+                }
             }
         }
     }
-}
-function sendMessage() {
-    var message = {
-        body: '',
-        customProperties: {
-            messagenumber: 0
+
+    async sendMessage(message) {
+        const result = await db.files.create({
+            name: message,
+            created_at: new Date(),
+            status: 'progress',
+            updated_at: new Date(),
+            url: '',
+        });
+        var message = {
+            body: JSON.stringify({
+                id: result.dataValues.id,
+                name: message
+            }),
+            customProperties: {
+                messagenumber: 5
+            }
         }
-    }
-    
-    for (i = 0;i < 5;i++) {
-        message.customProperties.messagenumber=i;
-        message.body='This is Message #'+i;
-        serviceBusService.sendTopicMessage('sftp_topic', message, function(error) {
-          if (error) {
-            console.log(error);
-          }
+        serviceBusService.sendTopicMessage(this.service_bus_topic_name, message, function (error) {
+            if (error) {
+                console.log(error);
+            } else {}
         });
     }
+
+    recieveMessage() {
+        serviceBusService.receiveSubscriptionMessage(this.service_bus_topic_name, 'HighMessages', {
+            isPeekLock: true
+        }, (error, lockedMessage) => {
+            if (!error) {
+                // Message received and locked
+                // console.log(lockedMessage);
+                this.fetchSFTPfile(JSON.parse(lockedMessage.body));
+                serviceBusService.deleteMessage(lockedMessage, function (deleteError) {
+                    if (!deleteError) {
+                        // Message deleted
+                        console.log('message has been deleted.');
+                    }
+                })
+            }
+        });
+
+    }
 }
-function recieveMessage() {
-    serviceBusService.receiveSubscriptionMessage('sftp_topic', 'HighMessages', { isPeekLock: true }, function(error, lockedMessage){
-        if(!error){
-            // Message received and locked
-            console.log(lockedMessage);
-            serviceBusService.deleteMessage(lockedMessage, function (deleteError){
-                if(!deleteError){
-                    // Message deleted
-                    console.log('message has been deleted.');
-                }
-            })
-        }
-    });
-}
-//createTopic();
-//createSubscription();
-setInterval(function(){ recieveMessage(); }, 1000);
-sendMessage();
+const sftp_to_azure_instance = new sftp_to_azure();
+
+// sftp_to_azure_instance.createTopic();
+// sftp_to_azure_instance.createSubscription();
+setInterval(function () {
+    sftp_to_azure_instance.recieveMessage();
+}, 1000);
+
+sftp_to_azure_instance.start();

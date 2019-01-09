@@ -1,0 +1,19 @@
+1. SFTP
+docker run \
+    -v $PWD:/home/foo/upload \
+    -p 8080:22 -d atmoz/sftp \
+    foo:pass:1001
+
+2. Mysql
+$ docker run -d --name some-mysql -p 3306:3306 -e MYSQL_ROOT_HOST=% -e MYSQL_ROOT_PASSWORD=password mysql/mysql-server
+for global access
+$ docker exec -it some-mysql sh
+$mysql -u root -ppassword
+$ALTER USER 'root'@'%' IDENTIFIED WITH mysql_native_password BY 'password123';
+please do it before
+
+3. for Adminer 
+$ docker run --link some-mysql:db -p 8081:8080 adminer
+
+
+4 sequelize-auto -o "./models" -d sftp -h 52.187.134.188 -u root -x password123 -e mysql
