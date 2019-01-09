@@ -7,6 +7,7 @@ let serviceBusService = azure.createServiceBusService();
 var azure_storage = require('azure-storage');
 let db = require('./db');
 let config = require('./config');
+let moment = require('moment');
 
 class sftp_to_azure {
     constructor() {
@@ -56,7 +57,7 @@ class sftp_to_azure {
                             return obj.update({
                                 status: 'done',
                                 url: this.blob_url + body.name,
-                                updated_at: new Date(),
+                                updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss"),
                             });
                         }
                     });
@@ -124,9 +125,9 @@ class sftp_to_azure {
     async sendMessage(message) {
         const result = await db.files.create({
             name: message,
-            created_at: new Date(),
+            created_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss"),
             status: 'progress',
-            updated_at: new Date(),
+            updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss"),
             url: '',
         });
         var message = {
