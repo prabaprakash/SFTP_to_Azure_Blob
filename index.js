@@ -31,9 +31,9 @@ class sftp_to_azure {
         sftp.on('close', () => {
             console.log('sftp close event');
         });
-        this.getSftpFilesList();
         schedule.scheduleJob('*/1 * * * *', () => {
             console.log('The answer to life, the universe, and everything!');
+            this.getSftpFilesList();
         });
     }
 
