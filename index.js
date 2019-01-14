@@ -33,12 +33,12 @@ class sftp_to_azure {
     sftp.on("close", () => {
       console.log("sftp close event");
     });
-    this.getSftpFilesList();
+  //this.getSftpFilesList();
     schedule.scheduleJob("*/1 * * * *", () => {
       console.log("The answer to life, the universe, and everything!");
        //this.getSftpFilesList();
     });
-    // this.fetchSFTPfile({name: "333.txt"})
+    this.fetchSFTPfile({name: "a.m4a", id: 1})
   }
 
   async uploadToBlob(name, stream) {
@@ -47,7 +47,7 @@ class sftp_to_azure {
       stream,
       blobService.createWriteStreamToBlockBlob("prabafiles", name)
     );
-    //stream.pipe(blobService.createWriteStreamToBlockBlob('prabafiles', body.name));
+    //stream.pipe(blobService.createWriteStreamToBlockBlob('prabafiles', name));
   }
 
   async fetchSFTPfile(body) {
@@ -65,8 +65,8 @@ class sftp_to_azure {
       url: this.blob_url + fileName,
       updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss")
     });
-    if (await sftp.exists(this.sftp_to_folder + "/" + body.name)) {
-      await sftp.delete(this.sftp_to_folder + "/" + body.name);
+    if (await sftp.exists(this.sftp_to_folder + "/" + fileName)) {
+      await sftp.delete(this.sftp_to_folder + "/" + fileName);
     }
     await sftp.rename(
       this.sftp_from_folder + "/" + fileName,
