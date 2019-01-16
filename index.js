@@ -9,6 +9,8 @@ let db = require("./db");
 let config = require("./config");
 let moment = require("moment");
 const fs = require('fs')
+const Sequelize = require("sequelize");
+const Op = Sequelize.Op;
 
 class sftp_to_azure {
   constructor() {
@@ -22,59 +24,54 @@ class sftp_to_azure {
     };
     this.sftp_from_folder = "upload/from";
     this.sftp_to_folder = "upload/to";
-    this.blob_url =
-      "https://prabastorage.blob.core.windows.net/prabafiles/upload/";
+    this.azure_storage_container_url =
+      "https://prabastorage.blob.core.windows.net/prabafiles/";
+    this.azure_storage_container_name = "prabafiles";
   }
   async start() {
     await sftp.connect(this.sftp_config);
     sftp.on("end", () => {
       console.log("sftp end event");
     });
-
     sftp.on("close", () => {
       console.log("sftp close event");
     });
-    //this.getSftpFilesList();
+    //this.getSFTPFilesListAndSendToServiceBus();
     schedule.scheduleJob("*/1 * * * *", () => {
       console.log("The answer to life, the universe, and everything!");
-      this.getSftpFilesList();
+      this.getSFTPFilesListAndSendToServiceBus();
     });
   }
 
   async uploadToBlob(name, stream) {
     var blobService = azure_storage.createBlobService();
-    await promisePipe(
-      stream,
-      blobService.createWriteStreamToBlockBlob("prabafiles", name)
-    );
-    //stream.pipe(blobService.createWriteStreamToBlockBlob('prabafiles', name));
+    stream.pipe(blobService.createWriteStreamToBlockBlob(this.azure_storage_container_name, name));
   }
-  async fetchSFTPFiletoLocal(body) {
+  async fetchSFTPFiletoLocalThenPushToAzureBlob(body) {
     const fileName = body.name;
     //console.log(body);
     let sftp_result = await sftp.fastGet(this.sftp_from_folder + "/" + fileName, "./tmp/" + fileName);
     console.log(sftp_result);
     var blobService = azure_storage.createBlobService();
-    blobService.createBlockBlobFromLocalFile('prabafiles', fileName, "./tmp/" + fileName, async (error, result) => {
+    blobService.createBlockBlobFromLocalFile(this.azure_storage_container_name, fileName, "./tmp/" + fileName, async (error, result) => {
       if (!error) {
         console.log(result);
-        const deleteFile = (path) =>
+        const deleteTmpFile = (path) =>
           new Promise((res, rej) => {
             fs.unlink(path, (err, data) => {
               if (err) rej(err)
               else res(data)
             })
           })
-        await deleteFile("./tmp/" + fileName);
-        let obj = await db.files.findOne({
+        await deleteTmpFile("./tmp/" + fileName);
+        await db.files.update({
+          status: "done",
+          url: this.azure_storage_container_url + fileName,
+          updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss")
+        }, {
           where: {
             id: body.id
           }
-        });
-        await obj.update({
-          status: "done",
-          url: this.blob_url + fileName,
-          updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss")
         });
         if (await sftp.exists(this.sftp_to_folder + "/" + fileName)) {
           await sftp.delete(this.sftp_to_folder + "/" + fileName);
@@ -88,186 +85,73 @@ class sftp_to_azure {
       }
     });
   }
-  async fetchSFTPfile(body) {
-    // console.log(body);
-    const fileName = body.name;
-    let stream = await sftp.get(this.sftp_from_folder + "/" + fileName);
-    await this.uploadToBlob(fileName, stream);
-    let obj = await db.files.findOne({
+  async getFilesWithDiffFromDB(datas) {
+    const sftp_files = _.map(datas, (x) => ({
+      name: x.name,
+      modifyTime: x.modifyTime.toString(),
+      size: x.size.toString()
+    }));
+    // console.log(sftp_files);
+    let files = await db.files.findAll({
+      raw: true,
       where: {
-        id: body.id
+        [Op.or]: sftp_files,
       }
     });
-    await obj.update({
-      status: "done",
-      url: this.blob_url + fileName,
-      updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss")
-    });
-    if (await sftp.exists(this.sftp_to_folder + "/" + fileName)) {
-      await sftp.delete(this.sftp_to_folder + "/" + fileName);
-    }
-    await sftp.rename(
-      this.sftp_from_folder + "/" + fileName,
-      this.sftp_to_folder + "/" + fileName
-    );
+    files = _.map(files, file => _.pick(file, ['name', 'size', 'modifyTime']));
+    const diff =  _.differenceWith(sftp_files, files, _.isEqual);
+    return diff;
   }
-
-  getSftpFilesList() {
+  getSFTPFilesListAndSendToServiceBus() {
     sftp
       .list(this.sftp_from_folder)
-      .then(datas => {
-        console.log(datas, 'the data info');
-        _.forEach(datas, data => this.sendMessageToQueue(data.name));
+      .then(async (datas) => {
+        const files = await this.getFilesWithDiffFromDB(datas)
+        console.log(files);
+        _.forEach(files, data => this.sendMessageToQueue(data));
       })
       .catch(err => {
-        console.log(err, "catch error");
+        console.log("catch error -", err);
       });
-  }
-
-  createTopic() {
-    var topicOptions = {
-      MaxSizeInMegabytes: "5120",
-      DefaultMessageTimeToLive: "PT1M"
-    };
-
-    serviceBusService.createTopicIfNotExists(
-      "sftp_topic",
-      topicOptions,
-      function (error) {
-        if (!error) {
-          console.log("topic created");
-        }
-      }
-    );
-  }
-
-  createTopicSubscription() {
-    serviceBusService.createSubscription(
-      this.service_bus_topic_name,
-      "HighMessages",
-      function (error) {
-        if (!error) {
-          // subscription created
-          rule.create();
-        }
-      }
-    );
-    var rule = {
-      deleteDefault: function () {
-        serviceBusService.deleteRule(
-          this.service_bus_topic_name,
-          "HighMessages",
-          azure.Constants.ServiceBusConstants.DEFAULT_RULE_NAME,
-          rule.handleError
-        );
-      },
-      create: function () {
-        var ruleOptions = {
-          sqlExpressionFilter: "messagenumber > 3"
-        };
-        rule.deleteDefault();
-        serviceBusService.createRule(
-          this.service_bus_topic_name,
-          "HighMessages",
-          "HighMessageFilter",
-          ruleOptions,
-          rule.handleError
-        );
-      },
-      handleError: function (error) {
-        if (error) {
-          console.log(error);
-        }
-      }
-    };
-  }
-
-  async sendMessageToTopic(message) {
-    const result = await db.files.create({
-      name: message,
-      created_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss"),
-      status: "progress",
-      updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss"),
-      url: ""
-    });
-    var message = {
-      body: JSON.stringify({
-        id: result.dataValues.id,
-        name: message
-      }),
-      customProperties: {
-        messagenumber: 5
-      }
-    };
-    serviceBusService.sendTopicMessage(
-      this.service_bus_topic_name,
-      message,
-      function (error) {
-        if (error) {
-          console.log(error);
-        } else {}
-      }
-    );
-  }
-
-  recieveMessageFromTopic() {
-    serviceBusService.receiveSubscriptionMessage(
-      this.service_bus_topic_name,
-      "HighMessages", {
-        isPeekLock: true
-      },
-      async (error, lockedMessage) => {
-        if (!error) {
-          // Message received and locked
-          // console.log(lockedMessage);
-          try {
-            console.log("recieveMessage", JSON.parse(lockedMessage.body));
-            await this.fetchSFTPFiletoLocal(JSON.parse(lockedMessage.body));
-            serviceBusService.deleteMessage(lockedMessage, deleteError => {
-              if (!deleteError) {
-                // Message deleted
-                console.log("Deleted ", JSON.parse(lockedMessage.body));
-              }
-            });
-          } catch (e) {
-            console.log(e);
-          }
-        }
-      }
-    );
   }
   createQueue() {
     var queueOptions = {
       MaxSizeInMegabytes: '5120',
       DefaultMessageTimeToLive: 'PT2M'
     };
-    serviceBusService.createQueueIfNotExists(this.service_bus_queue_name, queueOptions, function (error) {
+    serviceBusService.createQueueIfNotExists(this.service_bus_queue_name, queueOptions, (error) => {
       if (!error) {
         // Queue exists
       }
     });
   }
-  async sendMessageToQueue(message) {
-    const result = await db.files.create({
-      name: message,
+  async sendMessageToQueue(data) {
+    const payload = {
+      name: data.name,
+      modifyTime: data.modifyTime,
+      size: data.size,
       created_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss"),
       status: "progress",
       updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss"),
       url: ""
-    });
+    };
+    console.log('the data info -', payload);
+    const result = await db.files.create(payload);
     var message = {
       body: JSON.stringify({
         id: result.dataValues.id,
-        name: message
+        name: data.name
       })
     };
     serviceBusService.sendQueueMessage(
       this.service_bus_queue_name,
       message,
-      function (error) {
+      (error) => {
         if (error) {
           console.log(error);
-        } else {}
+        } else {
+          console.log("Message Sended to Servcie Bus -", message);
+        }
       }
     );
   }
@@ -281,16 +165,15 @@ class sftp_to_azure {
           // Message received and locked
           // console.log(lockedMessage);
           try {
-            console.log("recieveMessage", JSON.parse(lockedMessage.body));
-            await this.fetchSFTPFiletoLocal(JSON.parse(lockedMessage.body));
+            console.log("Recieved Message from Servcie Bus - ", JSON.parse(lockedMessage.body));
+            await this.fetchSFTPFiletoLocalThenPushToAzureBlob(JSON.parse(lockedMessage.body));
             serviceBusService.deleteMessage(lockedMessage, deleteError => {
               if (!deleteError) {
-                // Message deleted
-                console.log("Deleted ", JSON.parse(lockedMessage.body));
+                console.log("Deleted Message from Servcie Bus  - ", JSON.parse(lockedMessage.body));
               }
             });
           } catch (e) {
-            console.log(e);
+            console.log("Exception Occured in Func recieveMessageFromQueue - ", e);
           }
         }
       }
@@ -299,9 +182,9 @@ class sftp_to_azure {
 }
 const sftp_to_azure_instance = new sftp_to_azure();
 
-sftp_to_azure_instance.createQueue();
+//sftp_to_azure_instance.createQueue();
 //sftp_to_azure_instance.createTopicSubscription();
-setInterval(function () {
+setInterval(() => {
   sftp_to_azure_instance.recieveMessageFromQueue();
 }, 1000);
 

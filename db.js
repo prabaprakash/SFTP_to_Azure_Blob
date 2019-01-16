@@ -14,9 +14,6 @@ const sequelize = new Sequelize(config.DB_NAME, config.DB_USERNAME, config.DB_PA
     define: {
         timestamps: false
     },
-    dialectOptions: {
-        encrypt: false
-    },
     logging: false,
 });
 
