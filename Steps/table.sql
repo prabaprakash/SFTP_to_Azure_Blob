@@ -13,6 +13,8 @@ CREATE TABLE `files` (
   `name` varchar(100) NOT NULL,
   `status` varchar(50) NOT NULL,
   `url` varchar(200) NOT NULL,
+  `size` numeric NOT NULL,
+  `modifyTime` varchar(20) NOT NULL,
   `created_at` datetime NOT NULL,
   `updated_at` datetime NOT NULL,
   PRIMARY KEY (`id`)

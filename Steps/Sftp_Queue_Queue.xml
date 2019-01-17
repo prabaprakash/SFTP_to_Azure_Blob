@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<Entities serviceBusNamespace="spikedocstandardization" 
+    xmlns="http://schemas.microsoft.com/servicebusexplorer">
+    <Queues>
+        <Queue>
+            <LockDuration>00:02:00</LockDuration>
+            <MaxSizeInMegabytes>5120</MaxSizeInMegabytes>
+            <RequiresDuplicateDetection>False</RequiresDuplicateDetection>
+            <RequiresSession>False</RequiresSession>
+            <DefaultMessageTimeToLive>00:05:00</DefaultMessageTimeToLive>
+            <AutoDeleteOnIdle>10675199.02:48:05.4775807</AutoDeleteOnIdle>
+            <EnableDeadLetteringOnMessageExpiration>True</EnableDeadLetteringOnMessageExpiration>
+            <DuplicateDetectionHistoryTimeWindow>00:10:00</DuplicateDetectionHistoryTimeWindow>
+            <Path>sftp_queue</Path>
+            <MaxDeliveryCount>10</MaxDeliveryCount>
+            <EnableBatchedOperations>True</EnableBatchedOperations>
+            <IsAnonymousAccessible>False</IsAnonymousAccessible>
+            <SupportOrdering>True</SupportOrdering>
+            <Status>Active</Status>
+            <ForwardTo></ForwardTo>
+            <ForwardDeadLetteredMessagesTo></ForwardDeadLetteredMessagesTo>
+            <EnablePartitioning>False</EnablePartitioning>
+            <UserMetadata></UserMetadata>
+            <EnableExpress>False</EnableExpress>
+            <IsReadOnly>False</IsReadOnly>
+        </Queue>
+    </Queues>
+</Entities>

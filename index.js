@@ -117,7 +117,10 @@ class sftp_to_azure {
   createQueue() {
     var queueOptions = {
       MaxSizeInMegabytes: '5120',
-      DefaultMessageTimeToLive: 'PT2M'
+      DefaultMessageTimeToLive: 'PT5M',
+      DeadLetteringOnMessageExpiration: 'true',
+      MaxDeliveryCount: '10',
+      LockDuration: 'PT2M',
     };
     serviceBusService.createQueueIfNotExists(this.service_bus_queue_name, queueOptions, (error) => {
       if (!error) {
@@ -182,8 +185,7 @@ class sftp_to_azure {
 }
 const sftp_to_azure_instance = new sftp_to_azure();
 
-//sftp_to_azure_instance.createQueue();
-//sftp_to_azure_instance.createTopicSubscription();
+sftp_to_azure_instance.createQueue();
 setInterval(() => {
   sftp_to_azure_instance.recieveMessageFromQueue();
 }, 1000);
