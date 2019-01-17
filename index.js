@@ -8,7 +8,7 @@ var azure_storage = require("azure-storage");
 let db = require("./db");
 let config = require("./config");
 let moment = require("moment");
-const fs = require('fs')
+const fs = require("fs");
 const Sequelize = require("sequelize");
 const Op = Sequelize.Op;
 
@@ -37,78 +37,78 @@ class sftp_to_azure {
       console.log("sftp close event");
     });
     //this.getSFTPFilesListAndSendToServiceBus();
-    schedule.scheduleJob("*/1 * * * *", () => {
-      console.log("The answer to life, the universe, and everything!");
+    schedule.scheduleJob("*/1 * * * *", date => {
+      console.log(`${date} - The answer to life, the universe, and everything!`);
       this.getSFTPFilesListAndSendToServiceBus();
     });
   }
 
-  async uploadToBlob(name, stream) {
-    var blobService = azure_storage.createBlobService();
-    stream.pipe(blobService.createWriteStreamToBlockBlob(this.azure_storage_container_name, name));
-  }
   async fetchSFTPFiletoLocalThenPushToAzureBlob(body) {
     const fileName = body.name;
     //console.log(body);
-    let sftp_result = await sftp.fastGet(this.sftp_from_folder + "/" + fileName, "./tmp/" + fileName);
+    let sftp_result = await sftp.fastGet(
+      this.sftp_from_folder + "/" + fileName,
+      "./tmp/" + fileName
+    );
     console.log(sftp_result);
     var blobService = azure_storage.createBlobService();
-    blobService.createBlockBlobFromLocalFile(this.azure_storage_container_name, fileName, "./tmp/" + fileName, async (error, result) => {
-      if (!error) {
-        console.log(result);
-        const deleteTmpFile = (path) =>
-          new Promise((res, rej) => {
-            fs.unlink(path, (err, data) => {
-              if (err) rej(err)
-              else res(data)
-            })
-          })
-        await deleteTmpFile("./tmp/" + fileName);
-        await db.files.update({
-          status: "done",
-          url: this.azure_storage_container_url + fileName,
-          updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss")
-        }, {
-          where: {
-            id: body.id
+    blobService.createBlockBlobFromLocalFile(
+      this.azure_storage_container_name,
+      fileName,
+      "./tmp/" + fileName,
+      async (error, result) => {
+        if (!error) {
+          console.log(result);
+          const deleteTmpFile = path =>
+            new Promise((res, rej) => {
+              fs.unlink(path, (err, data) => {
+                if (err) rej(err);
+                else res(data);
+              });
+            });
+          await deleteTmpFile("./tmp/" + fileName);
+          await db.files.update({
+            status: "done",
+            url: this.azure_storage_container_url + fileName,
+            updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss")
+          }, {
+            where: {
+              id: body.id
+            }
+          });
+          if (await sftp.exists(this.sftp_to_folder + "/" + fileName)) {
+            await sftp.delete(this.sftp_to_folder + "/" + fileName);
           }
-        });
-        if (await sftp.exists(this.sftp_to_folder + "/" + fileName)) {
-          await sftp.delete(this.sftp_to_folder + "/" + fileName);
+          await sftp.rename(
+            this.sftp_from_folder + "/" + fileName,
+            this.sftp_to_folder + "/" + fileName
+          );
+        } else {
+          console.log("error createBlockBlobFromLocalFile", error);
         }
-        await sftp.rename(
-          this.sftp_from_folder + "/" + fileName,
-          this.sftp_to_folder + "/" + fileName
-        );
-      } else {
-        console.log('error createBlockBlobFromLocalFile', error);
       }
-    });
+    );
   }
-  async getFilesWithDiffFromDB(datas) {
-    const sftp_files = _.map(datas, (x) => ({
+  async getFileWithDiffFromDB(datas) {
+    const sftp_files = _.map(datas, x => ({
       name: x.name,
       modifyTime: x.modifyTime.toString(),
       size: x.size.toString()
     }));
-    // console.log(sftp_files);
     let files = await db.files.findAll({
       raw: true,
       where: {
-        [Op.or]: sftp_files,
+        [Op.or]: sftp_files
       }
     });
-    files = _.map(files, file => _.pick(file, ['name', 'size', 'modifyTime']));
-    const diff =  _.differenceWith(sftp_files, files, _.isEqual);
-    return diff;
+    // console.log('getFileWithDiffFromDB - resultset', files);
+    return _.isEmpty(files);
   }
   getSFTPFilesListAndSendToServiceBus() {
     sftp
       .list(this.sftp_from_folder)
-      .then(async (datas) => {
-        const files = await this.getFilesWithDiffFromDB(datas)
-        console.log(files);
-        _.forEach(files, data => this.sendMessageToQueue(data));
+      .then(async datas => {
+        _.forEach(datas, data => this.sendMessageToQueue(data));
       })
       .catch(err => {
         console.log("catch error -", err);
@@ -116,51 +116,59 @@ class sftp_to_azure {
   }
   createQueue() {
     var queueOptions = {
-      MaxSizeInMegabytes: '5120',
-      DefaultMessageTimeToLive: 'PT5M',
-      DeadLetteringOnMessageExpiration: 'true',
-      MaxDeliveryCount: '10',
-      LockDuration: 'PT2M',
+      MaxSizeInMegabytes: "5120",
+      DefaultMessageTimeToLive: "PT5M",
+      DeadLetteringOnMessageExpiration: "true",
+      MaxDeliveryCount: "10",
+      LockDuration: "PT2M",
+      RequiresDuplicateDetection: "true"
     };
-    serviceBusService.createQueueIfNotExists(this.service_bus_queue_name, queueOptions, (error) => {
-      if (!error) {
-        // Queue exists
-      }
-    });
-  }
-  async sendMessageToQueue(data) {
-    const payload = {
-      name: data.name,
-      modifyTime: data.modifyTime,
-      size: data.size,
-      created_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss"),
-      status: "progress",
-      updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss"),
-      url: ""
-    };
-    console.log('the data info -', payload);
-    const result = await db.files.create(payload);
-    var message = {
-      body: JSON.stringify({
-        id: result.dataValues.id,
-        name: data.name
-      })
-    };
-    serviceBusService.sendQueueMessage(
+    serviceBusService.createQueueIfNotExists(
       this.service_bus_queue_name,
-      message,
-      (error) => {
-        if (error) {
-          console.log(error);
-        } else {
-          console.log("Message Sended to Servcie Bus -", message);
+      queueOptions,
+      error => {
+        if (!error) {
+          // Queue exists
         }
       }
     );
   }
+  async sendMessageToQueue(data) {
+    if (await this.getFileWithDiffFromDB([data])) {
+      const payload = {
+        name: data.name,
+        modifyTime: data.modifyTime,
+        size: data.size,
+        created_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss"),
+        status: "progress",
+        updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss"),
+        url: ""
+      };
+      console.log("the data info -", payload);
+      const result = await db.files.create(payload);
+      var message = {
+        body: JSON.stringify({
+          id: result.dataValues.id,
+          name: data.name
+        })
+      };
+      serviceBusService.sendQueueMessage(
+        this.service_bus_queue_name,
+        message,
+        error => {
+          if (error) {
+            console.log(error);
+          } else {
+            console.log("Message Sended to Servcie Bus -", message);
+          }
+        }
+      );
+    }
+  }
 
   recieveMessageFromQueue() {
-    serviceBusService.receiveQueueMessage(this.service_bus_queue_name, {
+    serviceBusService.receiveQueueMessage(
+      this.service_bus_queue_name, {
         isPeekLock: true
       },
       async (error, lockedMessage) => {
@@ -169,14 +177,17 @@ class sftp_to_azure {
           // console.log(lockedMessage);
           try {
             console.log("Recieved Message from Servcie Bus - ", JSON.parse(lockedMessage.body));
-            await this.fetchSFTPFiletoLocalThenPushToAzureBlob(JSON.parse(lockedMessage.body));
+            await this.fetchSFTPFiletoLocalThenPushToAzureBlob(
+              JSON.parse(lockedMessage.body)
+            );
             serviceBusService.deleteMessage(lockedMessage, deleteError => {
               if (!deleteError) {
                 console.log("Deleted Message from Servcie Bus  - ", JSON.parse(lockedMessage.body));
               }
             });
           } catch (e) {
-            console.log("Exception Occured in Func recieveMessageFromQueue - ", e);
+            console.log(
+              "Exception Occured in Func recieveMessageFromQueue - ", e);
           }
         }
       }
