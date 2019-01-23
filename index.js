@@ -9,6 +9,7 @@ const sftp_to_azure = require('./sftp_to_azure');
 const schedule = require("node-schedule");
 const sftp_to_azure_instance = new sftp_to_azure();
 sftp_to_azure_instance.connect();
+const db = require("./db");
 
 schedule.scheduleJob("*/1 * * * *", date => {
   console.log(`${date} - Scheduler - Receiver Invoked`);
@@ -35,6 +36,14 @@ app.use(bodyParser.urlencoded({ extended: true }))
 app.get('/api/sftp/initiate', async (request, response) => {
     await sftp_to_azure_instance.start();
     response.json({ status: "initiated" });
+});
+
+app.get('/api/sftp/files/:offset', async (request, response) => {
+    let files = await db.files.findAll({
+        raw: true,
+        offset: parseInt(request.params.offset), limit: 10
+      });
+      response.json(files);
 });
 
 app.get('*', function (req, res) {

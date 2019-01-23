@@ -11,6 +11,7 @@ const fs = require("fs");
 const Sequelize = require("sequelize");
 const Op = Sequelize.Op;
 const queueSvc = azure.createQueueService();
+const uuidv4 = require('uuid/v4');
 
 class sftp_to_azure {
   constructor() {
@@ -30,19 +31,21 @@ class sftp_to_azure {
   }
   async connect() {
     await sftp.connect(this.sftp_config);
-    sftp.on("end", () => {
+    sftp.on("end", async () => {
       console.log("sftp end event");
+      await sftp.connect(this.sftp_config);
     });
-    sftp.on("close", () => {
+    sftp.on("close", async () => {
       console.log("sftp close event");
+      await sftp.connect(this.sftp_config);
+    });
+    sftp.on("error", (err) => {
+      console.log("SFTP - Connection Error - ", err);
     });
   }
   async start() {
-    //this.getSFTPFilesListAndSendToServiceBus();
-    schedule.scheduleJob("*/1 * * * *", date => {
-      console.log(`${date} - Scheduler - Sender Invoked`);
-      this.getSFTPFilesListAndSendToServiceBus();
-    });
+      console.log(`${new Date()} - Scheduler - Sender Invoked`);
+      await this.getSFTPFilesListAndSendToServiceBus();
   }
 
   async fetchSFTPFiletoLocalThenPushToAzureBlob(body) {
@@ -53,10 +56,11 @@ class sftp_to_azure {
       "./tmp/" + fileName
     );
     console.log(sftp_result);
+    let uniqueFilename = uuidv4() + '.' + fileName.split('.').pop();
     let blobService = azure_storage.createBlobService();
     blobService.createBlockBlobFromLocalFile(
       this.azure_storage_container_name,
-      fileName,
+      uniqueFilename,
       "./tmp/" + fileName,
       async (error, result) => {
         if (!error) {
@@ -71,7 +75,7 @@ class sftp_to_azure {
           await deleteTmpFile("./tmp/" + fileName);
           await db.files.update({
             status: "done",
-            url: this.azure_storage_container_url + fileName,
+            url: this.azure_storage_container_url + uniqueFilename,
             updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss")
           }, {
             where: {
@@ -106,15 +110,9 @@ class sftp_to_azure {
     // console.log('getFileWithDiffFromDB - resultset', files);
     return _.isEmpty(files);
   }
-  getSFTPFilesListAndSendToServiceBus() {
-    sftp
-      .list(this.sftp_from_folder)
-      .then(async datas => {
-        _.forEach(datas, data => this.sendMessageToQueue(data));
-      })
-      .catch(err => {
-        console.log("catch error -", err);
-      });
+  async getSFTPFilesListAndSendToServiceBus() {
+    const datas = await sftp.list(this.sftp_from_folder);
+    _.forEach(datas, data => this.sendMessageToQueue(data));
   }
   createQueue() {
     queueSvc.createQueueIfNotExists(this.service_bus_queue_name, (error, results, response) => {

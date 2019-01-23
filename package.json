@@ -23,6 +23,7 @@
     "sequelize": "^4.42.0",
     "sequelize-auto": "^0.4.29",
     "ssh2-sftp-client": "^2.4.3",
+    "uuid": "^3.3.2",
     "winston": "^3.1.0"
   }
 }
