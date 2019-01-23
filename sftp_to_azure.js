@@ -1,10 +1,9 @@
-const Client = require("ssh2-sftp-client");
-const sftp = new Client();
+const sftpPool = require('./sftpPool');
 const _ = require("lodash");
 const schedule = require("node-schedule");
 const azure = require("azure");
 const azure_storage = require("azure-storage");
-const db = require("./db");
+const db = require("./dbPool");
 const config = require("./config");
 const moment = require("moment");
 const fs = require("fs");
@@ -29,20 +28,6 @@ class sftp_to_azure {
       "https://prabastorage.blob.core.windows.net/prabafiles/";
     this.azure_storage_container_name = "prabafiles";
   }
-  async connect() {
-    await sftp.connect(this.sftp_config);
-    sftp.on("end", async () => {
-      console.log("sftp end event");
-      await sftp.connect(this.sftp_config);
-    });
-    sftp.on("close", async () => {
-      console.log("sftp close event");
-      await sftp.connect(this.sftp_config);
-    });
-    sftp.on("error", (err) => {
-      console.log("SFTP - Connection Error - ", err);
-    });
-  }
   async start() {
       console.log(`${new Date()} - Scheduler - Sender Invoked`);
       await this.getSFTPFilesListAndSendToServiceBus();
@@ -51,6 +36,7 @@ class sftp_to_azure {
   async fetchSFTPFiletoLocalThenPushToAzureBlob(body) {
     const fileName = body.name;
     //console.log(body);
+    const sftp = await sftpPool.acquire();
     let sftp_result = await sftp.fastGet(
       this.sftp_from_folder + "/" + fileName,
       "./tmp/" + fileName
@@ -94,6 +80,7 @@ class sftp_to_azure {
         }
       }
     );
+    sftpPool.release(sftp);
   }
   async getFileWithDiffFromDB(datas) {
     const sftp_files = _.map(datas, x => ({
@@ -111,8 +98,10 @@ class sftp_to_azure {
     return _.isEmpty(files);
   }
   async getSFTPFilesListAndSendToServiceBus() {
+    const sftp = await sftpPool.acquire();
     const datas = await sftp.list(this.sftp_from_folder);
     _.forEach(datas, data => this.sendMessageToQueue(data));
+    sftpPool.release(sftp);
   }
   createQueue() {
     queueSvc.createQueueIfNotExists(this.service_bus_queue_name, (error, results, response) => {

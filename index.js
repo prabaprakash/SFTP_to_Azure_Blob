@@ -8,8 +8,7 @@ const winston = require('winston');
 const sftp_to_azure = require('./sftp_to_azure');
 const schedule = require("node-schedule");
 const sftp_to_azure_instance = new sftp_to_azure();
-sftp_to_azure_instance.connect();
-const db = require("./db");
+const db = require("./dbPool");
 
 schedule.scheduleJob("*/1 * * * *", date => {
   console.log(`${date} - Scheduler - Receiver Invoked`);
