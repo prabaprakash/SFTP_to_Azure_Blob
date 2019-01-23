@@ -75,12 +75,12 @@ class sftp_to_azure {
             this.sftp_from_folder + "/" + fileName,
             this.sftp_to_folder + "/" + fileName
           );
+          sftpPool.release(sftp);
         } else {
           console.log("error createBlockBlobFromLocalFile", error);
         }
       }
     );
-    sftpPool.release(sftp);
   }
   async getFileWithDiffFromDB(datas) {
     const sftp_files = _.map(datas, x => ({
