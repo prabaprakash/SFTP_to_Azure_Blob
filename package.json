@@ -12,12 +12,17 @@
     "async": "^2.6.1",
     "azure": "^2.3.1-preview",
     "azure-storage": "^2.10.2",
+    "body-parser": "^1.18.3",
+    "express": "^4.16.4",
+    "express-winston": "^3.0.1",
     "lodash": "^4.17.11",
     "mysql2": "^1.6.4",
     "node-schedule": "^1.3.1",
     "promisepipe": "^3.0.0",
+    "request-promise": "^4.2.2",
     "sequelize": "^4.42.0",
     "sequelize-auto": "^0.4.29",
-    "ssh2-sftp-client": "^2.4.3"
+    "ssh2-sftp-client": "^2.4.3",
+    "winston": "^3.1.0"
   }
 }
