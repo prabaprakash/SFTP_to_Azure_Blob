@@ -29,7 +29,7 @@ class sftp_to_azure {
     }
     async start() {
         schedule.scheduleJob("*/1 * * * *", async (date) => {
-            console.log(`${date} - Scheduler Invoked`);
+            console.log(` - Scheduler Invoked`);
             await this.getSFTPFilesListAndProcess();
         });
     }
@@ -38,7 +38,6 @@ class sftp_to_azure {
             name: x.name,
             modifyTime: x.modifyTime.toString(),
             size: x.size.toString(),
-            status: 'failed',
         }));
         let files = await db.files.findAll({
             raw: true,
@@ -46,21 +45,21 @@ class sftp_to_azure {
                 [Op.or]: sftp_files
             }
         });
-        console.log('getFileWithDiffFromDB - resultset', files);
-        return _.isEmpty(files);
+        // console.log('getFileWithDiffFromDB - resultset', files);
+        return files;
     }
     async getSFTPFilesListAndProcess() {
         const sftp = await sftpPool.acquire();
         const datas = await sftp.list(this.sftp_from_folder);
         async.eachLimit(datas, 5, (data, complete) => this.sendMessageToDB(data, complete), (err, result) => { // 4
-            if(err)
-             console.log("Failed to Get SFTP Files List And Process -", err);
+            if (err)
+                console.log("Failed to Get SFTP Files List And Process :", err);
         });
         sftpPool.release(sftp);
     }
     async sendMessageToDB(data, complete) {
-        console.log(data);
-        if (await this.getFileWithDiffFromDB([data])) {
+        const results = await this.getFileWithDiffFromDB([data]);
+        if (_.isEmpty(results)) {
             const payload = {
                 name: data.name,
                 modifyTime: data.modifyTime,
@@ -70,80 +69,97 @@ class sftp_to_azure {
                 updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss"),
                 url: ""
             };
-            console.log("the data info -", payload);
+            console.log(`SFTP data info -${data.name} ${data.size} ${data.modifyTime}`);
             const result = await db.files.create(payload);
             const body = {
                 id: result.dataValues.id,
                 name: data.name
             };
-            try {
-                await this.fetchSFTPFiletoLocalThenPushToAzureBlob(body);
-                complete();
-            } catch (e) {
-                console.log(
-                    "Failed to Fetch SFTP File to Local Then Push To Azure Blob :", e);
-                await db.files.update({
-                    status: "failed",
-                    updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss")
-                }, {
-                    where: {
-                        id: body.id
-                    }
-                });
-                complete();
-            }
+            await this.fetchSFTPFiletoLocalThenPushToAzureBlob(body);
+            complete();
+        } else if (results[0].status === "failed") {
+            console.log(`SFTP File Info -${data.name} ${data.size} ${data.modifyTime}`);
+            const body = {
+                id: results[0].id,
+                name: data.name
+            };
+            await this.fetchSFTPFiletoLocalThenPushToAzureBlob(body);
+            complete();
         } else {
             complete();
         }
     }
     async fetchSFTPFiletoLocalThenPushToAzureBlob(body) {
-        const fileName = body.name;
-        //console.log(body);
         const sftp = await sftpPool.acquire();
-        let sftp_result = await sftp.fastGet(
-            this.sftp_from_folder + "/" + fileName,
-            "./tmp/" + fileName
-        );
-        console.log(sftp_result);
-        let uniqueFilename = uuidv4() + '.' + fileName.split('.').pop();
-        let blobService = azure_storage.createBlobService();
-        blobService.createBlockBlobFromLocalFile(
-            this.azure_storage_container_name,
-            uniqueFilename,
-            "./tmp/" + fileName,
-            async (error, result) => {
-                if (!error) {
-                    console.log(result);
-                    const deleteTmpFile = path =>
-                        new Promise((res, rej) => {
-                            fs.unlink(path, (err, data) => {
-                                if (err) rej(err);
-                                else res(data);
+        try {
+            const fileName = body.name;
+            //console.log(body);
+            let sftp_result = await sftp.fastGet(
+                this.sftp_from_folder + "/" + fileName,
+                "./tmp/" + fileName
+            );
+            console.log(`SFTP File Fetch Info ${sftp_result}`);
+            let uniqueFilename = uuidv4() + '.' + fileName.split('.').pop();
+            let blobService = azure_storage.createBlobService();
+            blobService.createBlockBlobFromLocalFile(
+                this.azure_storage_container_name,
+                uniqueFilename,
+                "./tmp/" + fileName,
+                async (error, result) => {
+                    if (!error) {
+                        console.log(`Azure Blob Uploaded Info ${body.name} ${result.name}`);
+                        const deleteTmpFile = path =>
+                            new Promise((res, rej) => {
+                                fs.unlink(path, (err, data) => {
+                                    if (err) rej(err);
+                                    else res(data);
+                                });
                             });
+                        await deleteTmpFile("./tmp/" + fileName);
+                        await db.files.update({
+                            status: "done",
+                            url: this.azure_storage_container_url + uniqueFilename,
+                            updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss")
+                        }, {
+                            where: {
+                                id: body.id
+                            }
                         });
-                    await deleteTmpFile("./tmp/" + fileName);
-                    await db.files.update({
-                        status: "done",
-                        url: this.azure_storage_container_url + uniqueFilename,
-                        updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss")
-                    }, {
-                        where: {
-                            id: body.id
+                        if (await sftp.exists(this.sftp_to_folder + "/" + fileName)) {
+                            await sftp.delete(this.sftp_to_folder + "/" + fileName);
                         }
-                    });
-                    if (await sftp.exists(this.sftp_to_folder + "/" + fileName)) {
-                        await sftp.delete(this.sftp_to_folder + "/" + fileName);
+                        await sftp.rename(
+                            this.sftp_from_folder + "/" + fileName,
+                            this.sftp_to_folder + "/" + fileName
+                        );
+                        sftpPool.release(sftp);
+                    } else {
+                        console.log("Error Create Block Blob From Local File", error);
+                        await db.files.update({
+                            status: "failed",
+                            updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss")
+                        }, {
+                            where: {
+                                id: body.id
+                            }
+                        });
+                        sftpPool.release(sftp);
                     }
-                    await sftp.rename(
-                        this.sftp_from_folder + "/" + fileName,
-                        this.sftp_to_folder + "/" + fileName
-                    );
-                    sftpPool.release(sftp);
-                } else {
-                    console.log("error createBlockBlobFromLocalFile", error);
                 }
-            }
-        );
+            );
+        } catch (e) {
+            console.log(
+                "Failed to Fetch SFTP File to Local Then Push To Azure Blob :", e);
+            await db.files.update({
+                status: "failed",
+                updated_at: moment(new Date()).format("YYYY-MM-DD HH:mm:ss")
+            }, {
+                where: {
+                    id: body.id
+                }
+            });
+            sftpPool.release(sftp);
+        }
     }
 }
 
