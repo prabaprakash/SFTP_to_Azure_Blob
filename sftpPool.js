@@ -7,7 +7,8 @@ const sftp_config = {
     host: config.SFTP_HOST,
     port: config.SFTP_PORT,
     username: config.SFTP_USERNAME,
-    password: config.SFTP_PASSWORD
+    password: config.SFTP_PASSWORD,
+    keepaliveInterval: 1000,
 };
 
 const factory = {
@@ -24,6 +25,7 @@ const factory = {
         });
         sftp.on("error", (err) => {
             console.log("SFTP - Connection Error - ", err);
+            sftp.end();
         });
         await sftp.connect(sftp_config);
         return sftp;
@@ -35,20 +37,22 @@ const factory = {
 
 const opts = {
     max: 10, // maximum size of the pool
-    min: 3 // minimum size of the pool
+    min: 1 // minimum size of the pool
 };
 
 const myPool = genericPool.createPool(factory, opts);
 
 module.exports = myPool;
-
-// const resourcePromise = myPool.acquire();
-
+//const moment = require("moment");
+//const resourcePromise = myPool.acquire();
 // resourcePromise
-//     .then(async (client) => {
-//         const datas = await client.list("upload/from");
+//     .then(async (sftp) => {
+//         const sftp_to_folder = 'upload/to/' + moment(new Date()).format("YYYY-MM-DD");
+//         if (!await sftp.exists(sftp_to_folder))
+//             await sftp.mkdir(sftp_to_folder, false);
+//         const datas = await sftp.list("upload/from");
 //         _.forEach(datas, data => console.log(data));
-//         myPool.release(client);
+//         myPool.release(sftp);
 //     })
 //     .catch((err) => {
 //         // handle error - this is generally a timeout or maxWaitingClients
@@ -56,6 +60,6 @@ module.exports = myPool;
 //         console.log(err);
 //     });
 
-// myPool.drain().then(function() {
+//myPool.drain().then(function () {
 //     myPool.clear();
-//     });
+//});

@@ -29,8 +29,8 @@ class sftp_to_azure {
     this.azure_storage_container_name = "prabafiles";
   }
   async start() {
-      console.log(`${new Date()} - Scheduler - Sender Invoked`);
-      await this.getSFTPFilesListAndSendToServiceBus();
+    console.log(`${new Date()} - Scheduler - Sender Invoked`);
+    await this.getSFTPFilesListAndSendToServiceBus();
   }
 
   async fetchSFTPFiletoLocalThenPushToAzureBlob(body) {
@@ -68,16 +68,28 @@ class sftp_to_azure {
               id: body.id
             }
           });
-          if (await sftp.exists(this.sftp_to_folder + "/" + fileName)) {
-            await sftp.delete(this.sftp_to_folder + "/" + fileName);
+
+          const sftp_to_current_date_folder = this.sftp_to_folder + "/" + moment(new Date()).format("YYYY-MM-DD");
+
+          if (!await sftp.exists(sftp_to_current_date_folder))
+            await sftp.mkdir(sftp_to_current_date_folder, false);
+
+          const sftp_to_current_date_folder_with_fileName = sftp_to_current_date_folder + "/" + fileName;
+
+          if (await sftp.exists(sftp_to_current_date_folder_with_fileName)) {
+            await sftp.delete(sftp_to_current_date_folder_with_fileName);
           }
+
           await sftp.rename(
             this.sftp_from_folder + "/" + fileName,
-            this.sftp_to_folder + "/" + fileName
+            sftp_to_current_date_folder_with_fileName
           );
+
           sftpPool.release(sftp);
         } else {
-          console.log("error createBlockBlobFromLocalFile", error);
+          console.log("Error Creating Block Blob From Local File", error);
+          sftpPool.release(sftp);
+          throw new Error(error);
         }
       }
     );
@@ -124,16 +136,16 @@ class sftp_to_azure {
       console.log("the data info -", payload);
       const result = await db.files.create(payload);
       let message = JSON.stringify({
-          id: result.dataValues.id,
-          name: data.name
-        });
+        id: result.dataValues.id,
+        name: data.name
+      });
 
       queueSvc.createMessage(this.service_bus_queue_name, message, (error, results, response) => {
-          if (error) {
-            console.log(error);
-          } else {
-            console.log("Message Sended to Servcie Bus -", message);
-          }
+        if (error) {
+          console.log(error);
+        } else {
+          console.log("Message Sended to Servcie Bus -", message);
+        }
       });
 
     }

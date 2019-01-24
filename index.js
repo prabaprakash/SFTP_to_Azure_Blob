@@ -54,4 +54,12 @@ app.listen(port, function () {
     console.log(`Server listening on port ${port}`);
 });
 
+process.on('uncaughtException', (err) => {
+    // something went unhandled.
+    // Do any cleanup and exit anyway!
+    console.error(err); // don't do just that.
+    // FORCE exit the process too.
+    process.exit(1);
+  });
+
 module.exports = app;
